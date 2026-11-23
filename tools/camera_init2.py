@@ -37,7 +37,7 @@ def find_external_cameras() -> dict[str, str]:
     return cameras
 
 
-def init_camera(index: int | str | None = None, width: int = 1280, height: int = 720,
+def init_camera(index: int | str | None = None, width: int = 1920, height: int = 1080,
                 fps: int = 30) -> cv2.VideoCapture:
     if index is None:
         index = camera_index
@@ -75,13 +75,17 @@ def init_camera(index: int | str | None = None, width: int = 1280, height: int =
     return cap
 
 
-def init_external_cameras() -> dict[str, cv2.VideoCapture]:
-    """Open both external cameras; release the first if the second fails."""
+def init_external_cameras(width: int = 1920, height: int = 1080,
+                          fps: int = 30) -> dict[str, cv2.VideoCapture]:
+    """Open both external cameras; release the first if the second fails.
+
+    相机的分辨率/帧率/图像参数只在这里决定，别处不要再调 cap.set。
+    """
     devices = find_external_cameras()
     cameras = {}
     try:
         for name, device in devices.items():
-            cameras[name] = init_camera(device)
+            cameras[name] = init_camera(device, width, height, fps)
     except Exception:
         for cap in cameras.values():
             cap.release()
@@ -99,7 +103,9 @@ def draw_overlay(frame, name: str, fps: float, scale: float):
     cx, cy = w // 2, h // 2
     cv2.line(frame, (cx - 24, cy), (cx + 24, cy), (0, 255, 255), 1)
     cv2.line(frame, (cx, cy - 24), (cx, cy + 24), (0, 255, 255), 1)
-    cv2.rectangle(frame, (w // 4, h // 4), (3 * w // 4, 3 * h // 4), (0, 200, 200), 1)
+    # 叠加层颜色必须落在真实物体的色域之外：奶黄果是 h13-17/s28-72，而黄 (0,200,200) 的
+    # HSV 是 h30/s255/v200，正好落在奶黄色域里 —— 截图拿去标定时会整框被当成一颗巨果。
+    cv2.rectangle(frame, (w // 4, h // 4), (3 * w // 4, 3 * h // 4), (0, 0, 255), 1)
     cv2.putText(frame, f"{name}  {int(w / scale)}x{int(h / scale)}  {fps:5.1f} fps", (8, 24),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 0), 1, cv2.LINE_AA)
     cv2.putText(frame, "q/ESC quit   s snapshot   +/- scale", (8, h - 12),
@@ -144,7 +150,7 @@ def preview_external_cameras(scale: float = 0.5, snapshot_dir: str = "debug/cams
             elif key == ord("s"):
                 stamp = time.strftime("%m%d_%H%M%S")
                 for name, frame in raw.items():
-                    path = snapshot / f"{name}_{stamp}.jpg"
+                    path = snapshot / f"{name}_{stamp}.png"
                     cv2.imwrite(str(path), frame)
                     print(f"[Camera] {name} 已存 {path}")
     finally:
@@ -164,7 +170,7 @@ def save_frames(directory: str, count: int = 3) -> None:
                 ok, frame = cap.read()
                 if not ok:
                     raise RuntimeError(f"[Camera] {name} 取帧失败")
-                path = out / f"{name}_{i}.jpg"
+                path = out / f"{name}_{i}.png"
                 cv2.imwrite(str(path), frame)
                 print(f"[Camera] {name} -> {path}  {frame.shape[1]}×{frame.shape[0]}")
     finally:

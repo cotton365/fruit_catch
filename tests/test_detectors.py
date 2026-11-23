@@ -13,12 +13,16 @@ def _side_config(*, positions: dict[str, list[float]]) -> dict:
     return {
         "green_hsv_lower": [35, 55, 30],
         "green_hsv_upper": [95, 255, 255],
-        "open_kernel_px": 3,
+        "fruit_radius_px": 30,
+        "open_radius_ratio": 0.38,
+        "min_disk_fill": 0.70,
+        "min_protrusion": 0.65,
+        "annulus_scale": [1.2, 1.6],
         "close_kernel_px": 3,
         "min_blob_area_px": 300,
         "max_blob_area_px": 10000,
         "min_fill_ratio": 0.3,
-        "max_elongation": 2.2,
+        "max_elongation": 1.8,
         "min_circularity": 0.15,
         "positions": positions,
     }
@@ -107,6 +111,39 @@ class DetectorTests(unittest.TestCase):
         )
         detection, _ = SideColorDetector(config).detect(frame)
         self.assertEqual(detection.green_positions, ())
+
+    def test_side_trunk_column_is_not_reported_as_mango(self) -> None:
+        # 树干的可见面积和果一模一样，只能靠"盘内满、环带也满"把它排掉。
+        frame = np.zeros((400, 600, 3), dtype=np.uint8)
+        cv2.rectangle(frame, (255, 150), (345, 250), (0, 190, 0), -1)
+        config = _side_config(
+            positions={
+                "L1": [0.6, 0.0, 1.0, 0.5],
+                "L2": [0.1, 0.1, 0.9, 0.9],
+                "R1": [0.6, 0.5, 1.0, 1.0],
+                "R2": [0.9, 0.0, 1.0, 0.2],
+            }
+        )
+        detection, _ = SideColorDetector(config).detect(frame)
+        self.assertEqual(detection.green_positions, ())
+
+    def test_side_mango_welded_to_branch_is_still_found(self) -> None:
+        # 果经由挂销与枝相连时，开运算圆盘负责剪断挂销，判据不能要求"果是独立连通域"。
+        frame = np.zeros((400, 600, 3), dtype=np.uint8)
+        green = (0, 190, 0)
+        cv2.rectangle(frame, (60, 125), (500, 155), green, -1)
+        cv2.line(frame, (180, 156), (180, 210), green, 12)
+        cv2.ellipse(frame, (180, 240), (24, 34), 0, 0, 360, green, -1)
+        config = _side_config(
+            positions={
+                "L1": [0.0, 0.0, 0.3, 0.3],
+                "L2": [0.1, 0.3, 0.5, 0.9],
+                "R1": [0.7, 0.0, 1.0, 0.3],
+                "R2": [0.55, 0.3, 1.0, 0.9],
+            }
+        )
+        detection, _ = SideColorDetector(config).detect(frame)
+        self.assertEqual(detection.green_positions, ("L2",))
 
     def test_protocol(self) -> None:
         self.assertTrue(StartSignalParser.has_start(b"S"))

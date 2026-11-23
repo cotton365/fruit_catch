@@ -44,6 +44,35 @@ def _green_mask(frame: np.ndarray, lower: list[int], upper: list[int]) -> np.nda
     return cv2.inRange(hsv, np.array(lower, dtype=np.uint8), np.array(upper, dtype=np.uint8))
 
 
+def _occupancy(
+    mask: np.ndarray,
+    center: tuple[float, float],
+    radius: float,
+    annulus_scale: list[float] | tuple[float, float],
+) -> tuple[float, float]:
+    """返回 (果盘内掩码占比, 果盘外环带掩码占比)。
+
+    环带内径/外径都是 radius 的倍数。果盘内的占比回答"这里有没有一块果形的东西"，
+    果盘与环带之差回答"这块东西是不是独立凸出来的"——树干上下都是它自己，差值会被拉低。
+    """
+    height, width = mask.shape[:2]
+    cx, cy = center
+    inner = radius * float(annulus_scale[0])
+    outer = radius * float(annulus_scale[1])
+    x1, x2 = max(0, int(cx - outer)), min(width, int(cx + outer) + 1)
+    y1, y2 = max(0, int(cy - outer)), min(height, int(cy + outer) + 1)
+    if x1 >= x2 or y1 >= y2:
+        return 0.0, 0.0
+    yy, xx = np.mgrid[y1:y2, x1:x2]
+    distance2 = (xx - cx) ** 2 + (yy - cy) ** 2
+    patch = mask[y1:y2, x1:x2].astype(bool)
+    disk = distance2 <= radius * radius
+    ring = (distance2 > inner * inner) & (distance2 <= outer * outer)
+    disk_fill = float(patch[disk].mean()) if disk.any() else 0.0
+    ring_fill = float(patch[ring].mean()) if ring.any() else 0.0
+    return disk_fill, ring_fill
+
+
 def _pixel_roi(shape: tuple[int, ...], roi: list[float]) -> tuple[int, int, int, int]:
     height, width = shape[:2]
     x1 = int(np.clip(roi[0], 0.0, 1.0) * width)
@@ -214,7 +243,11 @@ class SideColorDetector:
             self.config["green_hsv_lower"],
             self.config["green_hsv_upper"],
         )
-        open_size = _odd_kernel(self.config.get("open_kernel_px", 7))
+        # 开运算的圆盘必须比挂销粗、比果细，否则果会和枝干连成一个连通域被整块丢掉。
+        fruit_radius = float(self.config.get("fruit_radius_px", 55))
+        open_size = _odd_kernel(
+            int(round(2.0 * fruit_radius * float(self.config.get("open_radius_ratio", 0.38)) + 1))
+        )
         close_size = _odd_kernel(self.config.get("close_kernel_px", 5))
         mask = cv2.morphologyEx(
             mask,
@@ -232,6 +265,9 @@ class SideColorDetector:
         min_fill = float(self.config.get("min_fill_ratio", 0.35))
         max_elongation = float(self.config.get("max_elongation", 2.2))
         min_circularity = float(self.config.get("min_circularity", 0.18))
+        min_disk_fill = float(self.config.get("min_disk_fill", 0.70))
+        min_protrusion = float(self.config.get("min_protrusion", 0.65))
+        annulus_scale = self.config.get("annulus_scale", [1.2, 1.6])
 
         annotated = frame.copy()
         position_blobs: dict[str, list[BlobInfo]] = {position: [] for position in self.POSITION_ORDER}
@@ -258,6 +294,9 @@ class SideColorDetector:
             if moments["m00"] <= 0:
                 continue
             center = (float(moments["m10"] / moments["m00"]), float(moments["m01"] / moments["m00"]))
+            disk_fill, ring_fill = _occupancy(mask, center, fruit_radius, annulus_scale)
+            if disk_fill < min_disk_fill or disk_fill - ring_fill < min_protrusion:
+                continue
             owner = self._owner(frame.shape, center)
             if owner is None:
                 unowned.append(center)
