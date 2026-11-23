@@ -1,0 +1,4 @@
+nohup: 忽略输入
+2026-11-18 22:37:33,206 INFO Preview available at http://0.0.0.0:8080
+2026-11-18 22:37:33,207 INFO Waiting for S/s on the serial port
+2026-11-18 22:37:34,643 INFO Opened top camera: /dev/v4l/by-id/usb-SN0002_5MP_USB_Camera_44434000_P030D03_SN0002-video-index0

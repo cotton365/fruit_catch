@@ -1,0 +1,84 @@
+{
+  "serial": {
+    "port": "/dev/ttyS1",
+    "baudrate": 115200,
+    "timeout_s": 0.0
+  },
+  "cameras": {
+    "top": {
+      "device": "/dev/v4l/by-id/usb-SN0002_5MP_USB_Camera_44434000_P030D03_SN0002-video-index0",
+      "width": 1280,
+      "height": 720,
+      "fps": 30,
+      "rotate": 0,
+      "flip_horizontal": false,
+      "flip_vertical": false,
+      "warmup_frames": 8,
+      "controls": {
+        "brightness": 128,
+        "contrast": 128,
+        "saturation": 128,
+        "hue": 128,
+        "white_balance_automatic": 1
+      },
+      "lock_controls": {
+        "white_balance_automatic": 0
+      }
+    },
+    "side": {
+      "device": "/dev/v4l/by-id/usb-SN0002_1080P_USB_Camera_44434000_P030102_SN0002-video-index0",
+      "width": 1280,
+      "height": 720,
+      "fps": 30,
+      "rotate": 0,
+      "flip_horizontal": false,
+      "flip_vertical": false,
+      "warmup_frames": 8,
+      "controls": {
+        "brightness": 128,
+        "contrast": 128,
+        "saturation": 128,
+        "hue": 128,
+        "white_balance_automatic": 1
+      },
+      "lock_controls": {
+        "white_balance_automatic": 0
+      }
+    }
+  },
+  "top_detector": {
+    "green_hsv_lower": [35, 45, 30],
+    "green_hsv_upper": [95, 255, 255],
+    "roi": [0.05, 0.05, 0.95, 0.95],
+    "min_component_area_px": 3000,
+    "min_component_width_ratio": 0.25,
+    "min_component_height_ratio": 0.20,
+    "orientation_offset_deg": 0.0,
+    "open_kernel_px": 5,
+    "close_kernel_px": 13,
+    "reference_offset_px": [0, 0],
+    "tolerance_px": [15, 15],
+    "stable_frames": 5,
+    "smoothing_window": 5,
+    "transmit_period_s": 0.15
+  },
+  "side_detector": {
+    "green_hsv_lower": [35, 55, 30],
+    "green_hsv_upper": [95, 255, 255],
+    "open_kernel_px": 7,
+    "close_kernel_px": 5,
+    "min_blob_area_px": 350,
+    "max_blob_area_px": 30000,
+    "min_fill_ratio": 0.35,
+    "max_elongation": 2.2,
+    "min_circularity": 0.18,
+    "sample_frames": 15,
+    "required_positive_frames": 9,
+    "positions": {
+      "L1": [0.02, 0.08, 0.34, 0.56],
+      "L2": [0.16, 0.40, 0.50, 0.94],
+      "R1": [0.66, 0.08, 0.98, 0.56],
+      "R2": [0.50, 0.40, 0.84, 0.94]
+    }
+  }
+}
