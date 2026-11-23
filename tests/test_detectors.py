@@ -9,6 +9,21 @@ from vision.detectors import SideColorDetector, TopCenterDetector
 from vision.protocol import StartSignalParser, alignment_message, orientation_message, result_message
 
 
+def _side_config(*, positions: dict[str, list[float]]) -> dict:
+    return {
+        "green_hsv_lower": [35, 55, 30],
+        "green_hsv_upper": [95, 255, 255],
+        "open_kernel_px": 3,
+        "close_kernel_px": 3,
+        "min_blob_area_px": 300,
+        "max_blob_area_px": 10000,
+        "min_fill_ratio": 0.3,
+        "max_elongation": 2.2,
+        "min_circularity": 0.15,
+        "positions": positions,
+    }
+
+
 class DetectorTests(unittest.TestCase):
     def test_top_center_offset(self) -> None:
         frame = np.zeros((400, 600, 3), dtype=np.uint8)
@@ -39,25 +54,59 @@ class DetectorTests(unittest.TestCase):
         cv2.ellipse(frame, (180, 300), (24, 34), 0, 0, 360, yellow, -1)
         cv2.ellipse(frame, (510, 100), (24, 34), 0, 0, 360, yellow, -1)
         cv2.ellipse(frame, (420, 300), (24, 34), 0, 0, 360, green, -1)
-        config = {
-            "green_hsv_lower": [35, 55, 30],
-            "green_hsv_upper": [95, 255, 255],
-            "open_kernel_px": 3,
-            "close_kernel_px": 3,
-            "min_blob_area_px": 300,
-            "max_blob_area_px": 10000,
-            "min_fill_ratio": 0.3,
-            "max_elongation": 2.2,
-            "min_circularity": 0.15,
-            "positions": {
+        config = _side_config(
+            positions={
                 "L1": [0.0, 0.0, 0.3, 0.45],
                 "L2": [0.0, 0.55, 0.45, 1.0],
                 "R1": [0.7, 0.0, 1.0, 0.45],
                 "R2": [0.55, 0.55, 1.0, 1.0],
-            },
-        }
+            }
+        )
         detection, _ = SideColorDetector(config).detect(frame)
         self.assertEqual(detection.green_positions, ("L1", "R2"))
+
+    def test_side_single_mango_in_overlapping_boxes_reports_one_position(self) -> None:
+        frame = np.zeros((400, 600, 3), dtype=np.uint8)
+        cv2.ellipse(frame, (150, 170), (24, 34), 0, 0, 360, (0, 190, 0), -1)
+        config = _side_config(
+            positions={
+                "L1": [0.02, 0.08, 0.34, 0.56],
+                "L2": [0.16, 0.40, 0.50, 0.94],
+                "R1": [0.66, 0.08, 0.98, 0.56],
+                "R2": [0.50, 0.40, 0.84, 0.94],
+            }
+        )
+        detection, _ = SideColorDetector(config).detect(frame)
+        self.assertEqual(len(detection.green_positions), 1, detection.green_positions)
+        self.assertEqual(sum(len(blobs) for blobs in detection.blobs.values()), 1)
+
+    def test_side_mango_on_shared_box_edge_reports_one_position(self) -> None:
+        frame = np.zeros((400, 600, 3), dtype=np.uint8)
+        cv2.ellipse(frame, (300, 300), (24, 34), 0, 0, 360, (0, 190, 0), -1)
+        config = _side_config(
+            positions={
+                "L1": [0.0, 0.0, 0.34, 0.56],
+                "L2": [0.16, 0.40, 0.50, 0.94],
+                "R1": [0.66, 0.08, 1.0, 0.56],
+                "R2": [0.50, 0.40, 0.84, 0.94],
+            }
+        )
+        detection, _ = SideColorDetector(config).detect(frame)
+        self.assertEqual(len(detection.green_positions), 1, detection.green_positions)
+
+    def test_side_mango_outside_all_boxes_is_not_reported(self) -> None:
+        frame = np.zeros((400, 600, 3), dtype=np.uint8)
+        cv2.ellipse(frame, (560, 40), (24, 34), 0, 0, 360, (0, 190, 0), -1)
+        config = _side_config(
+            positions={
+                "L1": [0.0, 0.0, 0.34, 0.40],
+                "L2": [0.16, 0.40, 0.50, 0.80],
+                "R1": [0.66, 0.08, 0.84, 0.40],
+                "R2": [0.50, 0.40, 0.66, 0.80],
+            }
+        )
+        detection, _ = SideColorDetector(config).detect(frame)
+        self.assertEqual(detection.green_positions, ())
 
     def test_protocol(self) -> None:
         self.assertTrue(StartSignalParser.has_start(b"S"))

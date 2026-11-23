@@ -234,44 +234,41 @@ class SideColorDetector:
         min_circularity = float(self.config.get("min_circularity", 0.18))
 
         annotated = frame.copy()
-        detected_positions: list[str] = []
-        position_blobs: dict[str, tuple[BlobInfo, ...]] = {}
+        position_blobs: dict[str, list[BlobInfo]] = {position: [] for position in self.POSITION_ORDER}
 
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        unowned: list[tuple[float, float]] = []
+
+        for contour in contours:
+            area = float(cv2.contourArea(contour))
+            if area < min_area or area > max_area:
+                continue
+            rectangle = cv2.minAreaRect(contour)
+            rect_width, rect_height = rectangle[1]
+            short_side = max(1.0, min(rect_width, rect_height))
+            long_side = max(rect_width, rect_height)
+            elongation = long_side / short_side
+            _, _, bounding_width, bounding_height = cv2.boundingRect(contour)
+            fill_ratio = area / max(1.0, float(bounding_width * bounding_height))
+            perimeter = float(cv2.arcLength(contour, True))
+            circularity = 4.0 * np.pi * area / max(1.0, perimeter * perimeter)
+            if elongation > max_elongation or fill_ratio < min_fill or circularity < min_circularity:
+                continue
+            moments = cv2.moments(contour)
+            if moments["m00"] <= 0:
+                continue
+            center = (float(moments["m10"] / moments["m00"]), float(moments["m01"] / moments["m00"]))
+            owner = self._owner(frame.shape, center)
+            if owner is None:
+                unowned.append(center)
+                continue
+            position_blobs[owner].append(BlobInfo(area, fill_ratio, elongation, circularity, center))
+
+        detected_positions = [position for position in self.POSITION_ORDER if position_blobs[position]]
         for position in self.POSITION_ORDER:
             roi = self.config["positions"][position]
             x1, y1, x2, y2 = _pixel_roi(frame.shape, roi)
-            roi_mask = mask[y1:y2, x1:x2]
-            contours, _ = cv2.findContours(roi_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            accepted: list[BlobInfo] = []
-
-            for contour in contours:
-                area = float(cv2.contourArea(contour))
-                if area < min_area or area > max_area:
-                    continue
-                rectangle = cv2.minAreaRect(contour)
-                rect_width, rect_height = rectangle[1]
-                short_side = max(1.0, min(rect_width, rect_height))
-                long_side = max(rect_width, rect_height)
-                elongation = long_side / short_side
-                _, _, bounding_width, bounding_height = cv2.boundingRect(contour)
-                fill_ratio = area / max(1.0, float(bounding_width * bounding_height))
-                perimeter = float(cv2.arcLength(contour, True))
-                circularity = 4.0 * np.pi * area / max(1.0, perimeter * perimeter)
-                if elongation > max_elongation or fill_ratio < min_fill or circularity < min_circularity:
-                    continue
-                moments = cv2.moments(contour)
-                if moments["m00"] <= 0:
-                    continue
-                center = (
-                    x1 + float(moments["m10"] / moments["m00"]),
-                    y1 + float(moments["m01"] / moments["m00"]),
-                )
-                accepted.append(BlobInfo(area, fill_ratio, elongation, circularity, center))
-
-            is_green = bool(accepted)
-            if is_green:
-                detected_positions.append(position)
-            position_blobs[position] = tuple(accepted)
+            is_green = bool(position_blobs[position])
             color = (0, 255, 0) if is_green else (90, 90, 90)
             cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
             cv2.putText(
@@ -283,7 +280,34 @@ class SideColorDetector:
                 color,
                 2,
             )
-            for blob in accepted:
+            for blob in position_blobs[position]:
                 cv2.circle(annotated, (int(blob.center[0]), int(blob.center[1])), 10, (0, 255, 255), 2)
+        for center in unowned:
+            cv2.circle(annotated, (int(center[0]), int(center[1])), 10, (0, 128, 255), 2)
 
-        return SideDetection(tuple(detected_positions), position_blobs), annotated
+        frozen: dict[str, tuple[BlobInfo, ...]] = {
+            position: tuple(blobs) for position, blobs in position_blobs.items()
+        }
+        return SideDetection(tuple(detected_positions), frozen), annotated
+
+    def _owner(self, shape: tuple[int, ...], center: tuple[float, float]) -> str | None:
+        cx, cy = center
+        boxes = {
+            position: _pixel_roi(shape, self.config["positions"][position])
+            for position in self.POSITION_ORDER
+        }
+        containing = [
+            position
+            for position, (x1, y1, x2, y2) in boxes.items()
+            if x1 <= cx <= x2 and y1 <= cy <= y2
+        ]
+        if not containing:
+            return None
+        if len(containing) == 1:
+            return containing[0]
+
+        def center_distance(position: str) -> float:
+            x1, y1, x2, y2 = boxes[position]
+            return (cx - (x1 + x2) / 2.0) ** 2 + (cy - (y1 + y2) / 2.0) ** 2
+
+        return min(containing, key=center_distance)
